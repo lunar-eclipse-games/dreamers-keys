@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["client", "common", "instance-server"]
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[workspace.dependencies]
+log = "0.4"
+bevy = "0.15.3"
+bevy-inspector-egui = "0.30.0"
+bevy_renet = "1.0.0"
+bevy_rapier2d = { version = "0.29.0", features = ["simd-stable", "debug-render-2d"] }
+hex = "0.4"
+env_logger = "0.11"
+futures-channel = "0.3"
+uuid = { version = "1", features = ["v7"] }
+serde = { version = "1.0.219", features = ["derive"] }
+bincode = { version = "2.0.1", features = ["derive", "serde"] }
+rand = "0.8.5"
