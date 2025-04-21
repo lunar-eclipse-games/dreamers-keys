@@ -1,8 +1,11 @@
-use std::{net::UdpSocket, time::SystemTime};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    time::SystemTime,
+};
 
 use bevy::{
-    DefaultPlugins,
-    app::{App, FixedUpdate, Plugin, PluginGroup as _, Startup},
+    MinimalPlugins,
+    app::{App, FixedUpdate, Plugin, Startup},
     core_pipeline::core_2d::Camera2d,
     ecs::{
         entity::Entity,
@@ -14,12 +17,8 @@ use bevy::{
     hierarchy::DespawnRecursiveExt,
     log,
     utils::HashMap,
-    window::{Window, WindowPlugin},
 };
-use bevy_rapier2d::{
-    plugin::{NoUserData, RapierPhysicsPlugin},
-    render::RapierDebugRenderPlugin,
-};
+use bevy_rapier2d::plugin::{NoUserData, RapierPhysicsPlugin};
 use bevy_renet::{
     RenetServerPlugin,
     netcode::{NetcodeServerPlugin, NetcodeServerTransport, ServerAuthentication, ServerConfig},
@@ -27,7 +26,7 @@ use bevy_renet::{
 };
 use common::{
     GameLogic, GameLogicPlugin,
-    message::{ReliableMessageFromClient, ReliableMessageFromServer, TickSync},
+    instance_message::{ReliableMessageFromClient, ReliableMessageFromServer, TickSync},
     net_obj::NetworkObject,
     player::Player,
     tick::{Tick, get_unix_millis},
@@ -39,36 +38,29 @@ pub mod message;
 pub mod player;
 pub mod tick;
 
-pub fn run() {
+pub fn run(id: Uuid, key: [u8; 32]) {
     App::new()
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Server".to_string(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
+            MinimalPlugins,
             GameLogicPlugin::new(|| true),
-            Server,
+            Server { key },
         ))
         .add_plugins((
             tick::TickPlugin,
             message::MessagePlugin,
             player::PlayerPlugin,
         ))
-        .add_plugins((
-            RapierPhysicsPlugin::<NoUserData>::default(),
-            RapierDebugRenderPlugin::default(),
-        ))
-        .insert_resource(InstanceId(Uuid::now_v7()))
+        .add_plugins((RapierPhysicsPlugin::<NoUserData>::default(),))
+        .insert_resource(InstanceId(id))
         .run();
 }
 
 #[derive(Resource)]
 struct InstanceId(Uuid);
 
-struct Server;
+struct Server {
+    key: [u8; 32],
+}
 
 impl Plugin for Server {
     fn build(&self, app: &mut App) {
@@ -79,7 +71,7 @@ impl Plugin for Server {
         app.insert_resource(server);
 
         app.add_plugins(NetcodeServerPlugin);
-        let server_addr = "127.0.0.1:6969".parse().unwrap();
+        let server_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let socket = UdpSocket::bind(server_addr).unwrap();
         let server_config = ServerConfig {
             current_time: SystemTime::now()
@@ -87,9 +79,14 @@ impl Plugin for Server {
                 .unwrap(),
             max_clients: 64,
             protocol_id: 0,
-            public_addresses: vec![server_addr],
-            authentication: ServerAuthentication::Unsecure,
+            public_addresses: vec![socket.local_addr().unwrap()],
+            authentication: ServerAuthentication::Secure {
+                private_key: self.key,
+            },
         };
+
+        println!("{}", socket.local_addr().unwrap());
+
         let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
         app.insert_resource(transport);
 

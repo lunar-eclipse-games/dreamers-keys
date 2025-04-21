@@ -10,7 +10,7 @@ use bevy::{
 use bevy_renet::renet::{DefaultChannel, RenetServer};
 use common::{
     GameLogic,
-    instance_message::{ReliableMessageFromClient, UnreliableMessageFromClient},
+    manager_message::{ReliableMessageFromClient, UnreliableMessageFromClient},
 };
 
 #[derive(Debug, Event)]

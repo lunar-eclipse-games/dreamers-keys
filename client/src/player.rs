@@ -22,7 +22,7 @@ use bevy_rapier2d::{
 };
 use common::{
     GameLogic,
-    message::{
+    instance_message::{
         NetworkSpawn, OrderedInput, OwnedPlayerSync, PlayerPositionSync, ReliableMessageFromServer,
         UnreliableMessageFromClient, UnreliableMessageFromServer,
     },
@@ -32,7 +32,7 @@ use common::{
     tick::Tick,
 };
 
-use crate::network::{Client, ReliableMessage, UnreliableMessage};
+use crate::network::{Client, Instance, ReliableMessage, UnreliableMessage};
 
 pub struct PlayerPlugin;
 
@@ -131,7 +131,7 @@ impl InputBuffer {
 
 fn read_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut clients: Query<&mut Client>,
+    mut instance_clients: Query<&mut Client, With<Instance>>,
     mut input_buffer: ResMut<InputBuffer>,
 ) {
     let mut local_direction = Vec2::ZERO;
@@ -154,12 +154,12 @@ fn read_input(
     };
     let order = input_buffer.push_input(input.clone());
 
-    for mut client in clients.iter_mut() {
+    for mut client in instance_clients.iter_mut() {
         let message = UnreliableMessageFromClient::Input(OrderedInput {
             input: input.clone(),
             order,
         });
-        client.send_unreliable(message);
+        client.send_instance_unreliable(message);
     }
 }
 

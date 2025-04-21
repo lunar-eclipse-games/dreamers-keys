@@ -1,30 +1,30 @@
 use bevy::{
-    app::{App, AppExit, FixedUpdate, Last, Plugin, PostUpdate, PreUpdate}, ecs::{
+    app::{App, AppExit, FixedUpdate, Last, Plugin, PostUpdate, PreUpdate},
+    ecs::{
         component::Component,
         entity::Entity,
         event::{Event, EventReader, EventWriter},
         query::{Added, With},
         schedule::{IntoSystemConfigs as _, SystemSet},
         system::{Commands, Query, Res, ResMut},
-    }, log, math::Vec2, state::state::NextState, time::Time
+    },
+    log,
+    math::Vec2,
+    state::state::NextState,
+    time::Time,
 };
 use bevy_rapier2d::prelude::RapierContextSimulation;
 use bevy_renet::{
     netcode::{NetcodeClientTransport, NetcodeTransportError},
     renet::{DefaultChannel, RenetClient},
 };
-use common::{
-    GameLogic,
-    message::{
-        ReliableMessageFromClient, ReliableMessageFromServer, UnreliableMessageFromClient,
-        UnreliableMessageFromServer,
-    },
-};
+use common::{GameLogic, instance_message, manager_message};
 use uuid::Uuid;
 
 use crate::{
+    AppState,
     player::{LocalPlayer, PlayerSpawnRequest},
-    tick::get_client_tick, AppState,
+    tick::get_client_tick,
 };
 
 #[derive(Debug, SystemSet, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,6 +51,8 @@ impl Plugin for NetworkPlugin {
 
         app.add_event::<ReliableMessage>();
         app.add_event::<UnreliableMessage>();
+        app.add_event::<manager_message::ReliableMessageFromServer>();
+        app.add_event::<manager_message::UnreliableMessageFromServer>();
         app.add_systems(
             FixedUpdate,
             read_messages_from_server.before(GameLogic::Start),
@@ -114,13 +116,30 @@ impl Client {
         &mut self.client
     }
 
-    pub fn send_reliable(&mut self, message: ReliableMessageFromClient) {
+    pub fn send_manager_reliable(&mut self, message: manager_message::ReliableMessageFromClient) {
         let bytes = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
         self.client
             .send_message(DefaultChannel::ReliableUnordered, bytes);
     }
 
-    pub fn send_unreliable(&mut self, message: UnreliableMessageFromClient) {
+    pub fn send_manager_unreliable(
+        &mut self,
+        message: manager_message::UnreliableMessageFromClient,
+    ) {
+        let bytes = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
+        self.client.send_message(DefaultChannel::Unreliable, bytes);
+    }
+
+    pub fn send_instance_reliable(&mut self, message: instance_message::ReliableMessageFromClient) {
+        let bytes = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
+        self.client
+            .send_message(DefaultChannel::ReliableUnordered, bytes);
+    }
+
+    pub fn send_instance_unreliable(
+        &mut self,
+        message: instance_message::UnreliableMessageFromClient,
+    ) {
         let bytes = bincode::encode_to_vec(message, bincode::config::standard()).unwrap();
         self.client.send_message(DefaultChannel::Unreliable, bytes);
     }
@@ -174,33 +193,47 @@ fn disconnect_on_exit(mut query: Query<&mut Client>, exit: EventReader<AppExit>)
 #[derive(Event)]
 pub struct ReliableMessage {
     pub entity: Entity,
-    pub message: ReliableMessageFromServer,
+    pub message: instance_message::ReliableMessageFromServer,
 }
 
 #[derive(Event)]
 pub struct UnreliableMessage {
     pub entity: Entity,
-    pub message: UnreliableMessageFromServer,
+    pub message: instance_message::UnreliableMessageFromServer,
 }
 
 fn read_messages_from_server(
-    mut query: Query<(Entity, &mut Client)>,
-    mut reliable_writer: EventWriter<ReliableMessage>,
-    mut unreliable_writer: EventWriter<UnreliableMessage>,
+    mut query: Query<(Entity, &mut Client, Option<&Instance>)>,
+    mut reliable_instance_writer: EventWriter<ReliableMessage>,
+    mut unreliable_instance_writer: EventWriter<UnreliableMessage>,
+    mut reliable_manager_writer: EventWriter<manager_message::ReliableMessageFromServer>,
+    mut unreliable_manager_writer: EventWriter<manager_message::UnreliableMessageFromServer>,
 ) {
-    for (entity, mut client) in query.iter_mut() {
+    for (entity, mut client, instance) in query.iter_mut() {
         while let Some(message) = client
             .client_mut()
             .receive_message(DefaultChannel::ReliableUnordered)
         {
-            if let Ok((message, _)) = bincode::decode_from_slice::<
-                ReliableMessageFromServer,
-                bincode::config::Configuration,
-            >(&message, bincode::config::standard())
-            {
-                reliable_writer.send(ReliableMessage { entity, message });
+            if instance.is_some() {
+                if let Ok((message, _)) = bincode::decode_from_slice::<
+                    instance_message::ReliableMessageFromServer,
+                    bincode::config::Configuration,
+                >(&message, bincode::config::standard())
+                {
+                    reliable_instance_writer.send(ReliableMessage { entity, message });
+                } else {
+                    log::error!("Failed to deserialize message from instance server");
+                }
             } else {
-                log::error!("Failed to deserialize message from server");
+                if let Ok((message, _)) = bincode::decode_from_slice::<
+                    manager_message::ReliableMessageFromServer,
+                    bincode::config::Configuration,
+                >(&message, bincode::config::standard())
+                {
+                    reliable_manager_writer.send(message);
+                } else {
+                    log::error!("Failed to deserialize message from manager server");
+                }
             }
         }
 
@@ -208,14 +241,26 @@ fn read_messages_from_server(
             .client_mut()
             .receive_message(DefaultChannel::Unreliable)
         {
-            if let Ok((message, _)) = bincode::decode_from_slice::<
-                UnreliableMessageFromServer,
-                bincode::config::Configuration,
-            >(&message, bincode::config::standard())
-            {
-                unreliable_writer.send(UnreliableMessage { entity, message });
+            if instance.is_some() {
+                if let Ok((message, _)) = bincode::decode_from_slice::<
+                    instance_message::UnreliableMessageFromServer,
+                    bincode::config::Configuration,
+                >(&message, bincode::config::standard())
+                {
+                    unreliable_instance_writer.send(UnreliableMessage { entity, message });
+                } else {
+                    log::error!("Failed to deserialize message from instance server");
+                }
             } else {
-                log::error!("Failed to deserialize message from server");
+                if let Ok((message, _)) = bincode::decode_from_slice::<
+                    manager_message::UnreliableMessageFromServer,
+                    bincode::config::Configuration,
+                >(&message, bincode::config::standard())
+                {
+                    unreliable_manager_writer.send(message);
+                } else {
+                    log::error!("Failed to deserialize message from manager server");
+                }
             }
         }
     }
@@ -223,9 +268,11 @@ fn read_messages_from_server(
 
 fn load_local(
     mut commands: Commands,
-    clients: Query<Entity, (With<Client>, Added<InstanceConnecting>)>,
+    clients: Query<(Entity, &Instance), (With<Client>, Added<InstanceConnecting>)>,
 ) {
-    for client in clients.iter() {
+    for (client, Instance(id)) in clients.iter() {
+        log::info!("load_local: {id}");
+
         commands
             .entity(client)
             .remove::<InstanceConnecting>()
@@ -236,11 +283,13 @@ fn load_local(
 
 fn send_ready(
     mut commands: Commands,
-    mut clients: Query<(Entity, &mut Client), With<InstanceLocalLoaded>>,
+    mut clients: Query<(Entity, &Instance, &mut Client), With<InstanceLocalLoaded>>,
 ) {
-    for (entity, mut client) in clients.iter_mut() {
+    for (entity, Instance(id), mut client) in clients.iter_mut() {
+        log::info!("send_ready: {id}");
+
         if client.client().is_connected() {
-            client.send_reliable(ReliableMessageFromClient::Connected);
+            client.send_instance_reliable(instance_message::ReliableMessageFromClient::Connected);
             log::info!("Connected.");
             commands
                 .entity(entity)
@@ -254,18 +303,21 @@ fn load_remote(
     mut commands: Commands,
     mut reliable_reader: EventReader<ReliableMessage>,
     mut player_spawn_requests: EventWriter<PlayerSpawnRequest>,
-    mut clients: Query<(Entity, &mut Client, &mut InstanceRemoteLoading)>,
+    mut clients: Query<(Entity, &Instance, &mut Client, &mut InstanceRemoteLoading)>,
     active_instance: Query<Entity, With<InstanceActive>>,
+    current_instance: Query<Entity, With<CurrentInstance>>,
     mut app_state: ResMut<NextState<AppState>>,
 ) {
     for msg in reliable_reader.read() {
-        for (instance, mut client, mut state) in clients.iter_mut() {
+        for (instance, Instance(id), mut client, mut state) in clients.iter_mut() {
             if msg.entity != instance {
                 continue;
             }
 
+            log::info!("load_remote: {id}");
+
             match &msg.message {
-                ReliableMessageFromServer::PlayerInit(player_info) => {
+                instance_message::ReliableMessageFromServer::PlayerInit(player_info) => {
                     log::info!("Got init");
                     commands.insert_resource(LocalPlayer(player_info.net_obj));
                     player_spawn_requests.send(PlayerSpawnRequest::Local {
@@ -276,7 +328,7 @@ fn load_remote(
                     });
                     state.set_player_obj = true;
                 }
-                ReliableMessageFromServer::TickSync(tick_sync) => {
+                instance_message::ReliableMessageFromServer::TickSync(tick_sync) => {
                     log::info!("Got tick sync");
                     let tick = get_client_tick(tick_sync.tick, tick_sync.unix_millis);
                     commands.insert_resource(tick);
@@ -287,9 +339,11 @@ fn load_remote(
 
             if state.all() {
                 log::info!("Loaded Remote");
-                client.send_reliable(ReliableMessageFromClient::ReadyForUpdates);
+                client.send_instance_reliable(
+                    instance_message::ReliableMessageFromClient::ReadyForUpdates,
+                );
                 log::info!("Sent Ready for Updates");
-                if active_instance.is_empty() {
+                if current_instance.get(instance).is_ok() || active_instance.is_empty() {
                     commands
                         .entity(instance)
                         .remove::<InstanceRemoteLoading>()

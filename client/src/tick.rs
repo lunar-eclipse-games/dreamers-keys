@@ -1,5 +1,5 @@
 use bevy::{app::{App, FixedUpdate, Plugin}, ecs::{event::EventReader, schedule::IntoSystemConfigs as _, system::ResMut}};
-use common::{message::ReliableMessageFromServer, tick::{get_unix_millis, tick, Tick}, GameLogic};
+use common::{instance_message::ReliableMessageFromServer, tick::{get_unix_millis, tick, Tick}, GameLogic};
 
 use crate::network::ReliableMessage;
 

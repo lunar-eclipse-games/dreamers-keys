@@ -11,7 +11,7 @@ use bevy::{
 use bevy_renet::renet::{DefaultChannel, RenetServer};
 use common::{
     GameLogic,
-    message::{ReliableMessageFromServer, TickSync},
+    instance_message::{ReliableMessageFromServer, TickSync},
     tick::{Tick, get_unix_millis, tick},
 };
 

@@ -21,7 +21,7 @@ use bevy_rapier2d::{
 use bevy_renet::renet::{ClientId, DefaultChannel, RenetServer};
 use common::{
     GameLogic,
-    message::{
+    instance_message::{
         NetworkSpawn, OrderedInput, OwnedPlayerSync, PlayerInit, PlayerPositionSync,
         ReliableMessageFromServer, Spawn, UnreliableMessageFromClient, UnreliableMessageFromServer,
     },

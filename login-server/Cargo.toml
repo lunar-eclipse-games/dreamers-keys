@@ -1,0 +1,10 @@
+[package]
+name = "login-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+renet_netcode = { workspace = true }
+serde = { workspace = true }

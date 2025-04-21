@@ -8,8 +8,10 @@ bevy = { workspace = true }
 bevy-inspector-egui = { workspace = true }
 bevy_renet = { workspace = true }
 bevy_rapier2d = { workspace = true }
+bevy_simple_text_input = { workspace = true }
 bincode = { workspace = true }
 rand = { workspace = true }
+reqwest = { workspace = true }
 uuid = { workspace = true }
 
 common = { path = "../common" }

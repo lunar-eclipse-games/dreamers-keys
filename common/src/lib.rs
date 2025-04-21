@@ -6,7 +6,8 @@ use bevy::{
 };
 
 // pub mod game;
-pub mod message;
+pub mod instance_message;
+pub mod manager_message;
 pub mod tick;
 pub mod player;
 pub mod net_obj;
