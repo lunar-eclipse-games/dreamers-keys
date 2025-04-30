@@ -1,11 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bevy::ecs::system::{ResMut, Resource};
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 #[derive(
-    Resource,
     Serialize,
     Deserialize,
     Encode,
@@ -29,10 +27,10 @@ impl Tick {
     pub fn get(&self) -> u64 {
         self.0
     }
-}
 
-pub fn tick(mut tick: ResMut<Tick>) {
-    tick.0 += 1;
+    pub fn increment(&mut self) {
+        self.0 += 1;
+    }
 }
 
 pub fn get_unix_millis() -> u128 {

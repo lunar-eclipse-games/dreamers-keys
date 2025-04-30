@@ -1,443 +1,244 @@
 use std::{
     collections::HashMap,
-    net::UdpSocket,
-    process::{Child, Command},
-    time::SystemTime,
+    fmt::Debug,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
-use bevy::{
-    DefaultPlugins,
-    app::{App, FixedUpdate, PluginGroup as _, Startup, Update},
-    color::Color,
-    core_pipeline::core_2d::Camera2d,
-    ecs::{
-        component::Component,
-        entity::Entity,
-        event::EventReader,
-        query::{Changed, With, Without},
-        schedule::IntoSystemConfigs,
-        system::{Commands, Query, ResMut, Resource},
-    },
-    hierarchy::{BuildChildren, ChildBuild, DespawnRecursiveExt},
-    log,
-    state::{
-        app::AppExtStates,
-        condition::in_state,
-        state::{NextState, StateTransitionEvent, States},
-    },
-    text::{TextColor, TextFont},
-    ui::{
-        AlignItems, BackgroundColor, BorderColor, FlexDirection, Interaction, JustifyContent, Node,
-        UiRect, Val,
-        widget::{Button, Text},
-    },
-    window::{Window, WindowPlugin},
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_rapier2d::{
-    plugin::{NoUserData, RapierContextInitialization, RapierPhysicsPlugin},
-    render::RapierDebugRenderPlugin,
-};
-use bevy_renet::{
-    netcode::{ClientAuthentication, ConnectToken, NetcodeClientTransport},
-    renet::{ConnectionConfig, RenetClient},
-};
-use bevy_simple_text_input::{
-    TextInput, TextInputInactive, TextInputPlaceholder, TextInputPlugin, TextInputSettings,
-    TextInputSystem, TextInputTextColor, TextInputTextFont, TextInputValue,
-};
-use common::{
-    GameLogic, GameLogicPlugin, instance_message,
-    manager_message::{self, ReliableMessageFromClient, ReliableMessageFromServer},
-    net_obj::NetworkObject,
-};
-use network::{
-    Client, CurrentInstance, Instance, InstanceActive, InstanceConnecting, ReliableMessage,
-};
+use backend::BackendConnection;
+use common::{DT, Error, Result, game::character::CharacterKind, instance::Instance};
+use graphics::Graphics;
+use instance::InstanceData;
+use tracing::{Level, info, instrument, span, warn};
 use uuid::Uuid;
+// use winit::{
+//     application::ApplicationHandler,
+//     dpi::LogicalSize,
+//     event::WindowEvent,
+//     event_loop::{ControlFlow, EventLoop},
+//     window::Window,
+// };
+// use sdl2::video::Window;
+use glfw::PWindow;
 
-pub mod network;
-pub mod player;
-pub mod tick;
+pub mod backend;
+pub mod graphics;
+pub mod instance;
 
-#[derive(States, Debug, Clone, PartialEq, Eq, Hash)]
-enum AppState {
-    MainMenu,
-    InGame,
-}
+pub fn run() -> Result<()> {
+    let span = span!(Level::INFO, "client");
+    let _enter = span.enter();
 
-#[derive(States, Debug, Clone, PartialEq, Eq, Hash)]
-enum LoadingState {
-    Connecting,
-    GetInstance,
-    LoadInstance,
-    Done,
-}
+    let mut backend = BackendConnection::local();
 
-pub fn run() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Client".to_string(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            network::NetworkPlugin,
-        ))
-        .add_plugins((
-            GameLogicPlugin::new(in_state(AppState::InGame)),
-            tick::TickPlugin,
-        ))
-        .add_plugins(TextInputPlugin)
-        .add_plugins(WorldInspectorPlugin::new())
-        .add_plugins(player::PlayerPlugin)
-        .add_plugins(
-            RapierPhysicsPlugin::<NoUserData>::default()
-                .with_custom_initialization(RapierContextInitialization::NoAutomaticRapierContext),
-        )
-        .add_plugins(RapierDebugRenderPlugin::default())
-        .insert_state(AppState::MainMenu)
-        .add_systems(Startup, spawn_login_screen)
-        .add_systems(
-            FixedUpdate,
-            (
-                handle_login.run_if(in_state(AppState::MainMenu)),
-                focus
-                    .run_if(in_state(AppState::MainMenu))
-                    .before(TextInputSystem),
-                despawn.in_set(GameLogic::Spawn),
-            )
-                .after(GameLogic::Start),
-        )
-        .add_systems(Update, log_state_transitions)
-        .insert_state(LoadingState::Connecting)
-        .add_systems(
-            FixedUpdate,
-            (
-                connect.run_if(in_state(LoadingState::Connecting)),
-                receive_instance.run_if(in_state(LoadingState::GetInstance)),
-                load_instance.run_if(in_state(LoadingState::LoadInstance)),
-            ),
-        )
-        .run();
-}
+    let character = backend.create_character("testington", CharacterKind::SoloAccount)?;
 
-fn log_state_transitions(mut app: EventReader<StateTransitionEvent<AppState>>) {
-    for transition in app.read() {
-        log::info!(
-            "AppState transision: {:?} => {:?}",
-            transition.exited,
-            transition.entered
-        );
-    }
-}
+    let instance_id = backend.enter_game(character.character_id)?;
 
-fn despawn(
-    mut reader: EventReader<ReliableMessage>,
-    mut commands: Commands,
-    query: Query<(Entity, &NetworkObject)>,
-) {
-    for msg in reader.read() {
-        let instance_message::ReliableMessageFromServer::Despawn(net_obj) = &msg.message else {
-            continue;
-        };
+    info!("Entered game with character \"{}\"", character.name);
 
-        for (e, obj) in query.iter() {
-            if obj == net_obj {
-                commands.entity(e).despawn_recursive();
-            }
+    let mut glfw = glfw::init(glfw::fail_on_errors).unwrap();
+
+    glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
+
+    let (window, events) = glfw.with_primary_monitor(|glfw, monitor| {
+        let (mut window, events) = glfw
+            .create_window(1920, 1080, "Dreamer's Keys", glfw::WindowMode::Windowed)
+            .unwrap();
+
+        window.set_key_polling(true);
+        window.set_framebuffer_size_polling(true);
+
+        if let Some(monitor) = monitor {
+            let (mx, my, mw, mh) = monitor.get_workarea();
+            let (w, h) = window.get_size();
+            window.set_pos(mx + mw / 2 - w / 2, my + mh / 2 - h / 2);
         }
+
+        (Arc::new(window), events)
+    });
+
+    let mut game = Game {
+        graphics: pollster::block_on(Graphics::new(window.clone()))?,
+        last_redraw: Instant::now(),
+        accumulator: Duration::ZERO,
+        backend,
+        instances: HashMap::new(),
+        got_ctrl_c: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        keyboard_state: KeyboardState::default(),
+    };
+    game.instances
+        .insert(instance_id, InstanceData::new(Instance::new(instance_id)));
+
+    ctrlc::set_handler({
+        let got_ctrl_c = game.got_ctrl_c.clone();
+        move || got_ctrl_c.store(true, Ordering::SeqCst)
+    })
+    .unwrap();
+
+    game.run(glfw, window, events)?;
+
+    game.backend.shutdown()?;
+
+    Ok(())
+}
+
+pub struct Game {
+    graphics: Graphics,
+    last_redraw: Instant,
+    accumulator: Duration,
+    backend: BackendConnection,
+    instances: HashMap<Uuid, InstanceData>,
+    got_ctrl_c: Arc<AtomicBool>,
+    keyboard_state: KeyboardState,
+}
+
+impl Debug for Game {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Game").finish_non_exhaustive()
     }
 }
 
-#[derive(Component)]
-struct LoginScreen;
+impl Game {
+    #[instrument]
+    #[inline(never)]
+    fn update(&mut self, dt: Duration) -> Result<()> {
+        self.backend.pre_update(dt)?;
 
-#[derive(Component)]
-struct Username;
+        for instance in self.instances.values_mut() {
+            instance.update(&mut self.backend, &self.keyboard_state, dt)?;
+        }
 
-#[derive(Component)]
-struct Password;
+        self.backend.post_update()?;
 
-#[derive(Component)]
-struct LoginButton;
+        Ok(())
+    }
 
-#[derive(Component)]
-struct LocalButton;
+    #[instrument]
+    fn draw(&mut self) -> Result<()> {
+        self.graphics.render()?;
 
-fn spawn_login_screen(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(5.0),
-                ..Default::default()
-            },
-            Interaction::None,
-            LoginScreen,
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Node {
-                    width: Val::Px(200.0),
-                    border: UiRect::all(Val::Px(5.0)),
-                    padding: UiRect::all(Val::Px(5.0)),
-                    ..Default::default()
-                },
-                BorderColor(Color::BLACK),
-                BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-                TextInput,
-                TextInputTextFont(TextFont::from_font_size(30.0)),
-                TextInputTextColor(TextColor(Color::srgb(0.9, 0.9, 0.9))),
-                TextInputSettings {
-                    retain_on_submit: true,
-                    ..Default::default()
-                },
-                TextInputInactive(true),
-                TextInputPlaceholder {
-                    value: "Username".to_string(),
-                    ..Default::default()
-                },
-                Username,
-            ));
+        Ok(())
+    }
 
-            parent.spawn((
-                Node {
-                    width: Val::Px(200.0),
-                    border: UiRect::all(Val::Px(5.0)),
-                    padding: UiRect::all(Val::Px(5.0)),
-                    ..Default::default()
-                },
-                BorderColor(Color::BLACK),
-                BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-                TextInput,
-                TextInputTextFont(TextFont::from_font_size(30.0)),
-                TextInputTextColor(TextColor(Color::srgb(0.9, 0.9, 0.9))),
-                TextInputSettings {
-                    retain_on_submit: true,
-                    mask_character: Some('*'),
-                    ..Default::default()
-                },
-                TextInputInactive(true),
-                TextInputPlaceholder {
-                    value: "Password".to_string(),
-                    ..Default::default()
-                },
-                Password,
-            ));
+    #[instrument(skip(self, glfw, window, events))]
+    fn run(
+        &mut self,
+        mut glfw: glfw::Glfw,
+        window: Arc<PWindow>,
+        events: glfw::GlfwReceiver<(f64, glfw::WindowEvent)>,
+    ) -> Result<()> {
+        while !window.should_close() {
+            let elapsed = self.last_redraw.elapsed();
+            self.accumulator += elapsed;
+            self.last_redraw = Instant::now();
 
-            parent
-                .spawn((
-                    Button,
-                    LoginButton,
-                    Node {
-                        width: Val::Px(150.0),
-                        height: Val::Px(65.0),
-                        border: UiRect::all(Val::Px(5.0)),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..Default::default()
+            glfw.poll_events();
+            for (_, event) in glfw::flush_messages(&events) {
+                match event {
+                    glfw::WindowEvent::FramebufferSize(w, h) => {
+                        self.graphics.resize(Some((w, h)));
+                    }
+                    glfw::WindowEvent::Key(key, _, action, mods) => match action {
+                        glfw::Action::Press => {
+                            self.keyboard_state.pressed.insert(key, mods);
+                            self.keyboard_state.just_pressed.insert(key, mods);
+                        }
+                        glfw::Action::Release => {
+                            self.keyboard_state.just_released.insert(key, mods);
+                        }
+                        _ => {}
                     },
-                    BorderColor(Color::BLACK),
-                    BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-                ))
-                .with_children(|parent| {
-                    parent.spawn((
-                        Text::new("Login"),
-                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                        TextFont::from_font_size(30.0),
-                    ));
-                });
-
-            parent
-                .spawn((
-                    Button,
-                    LocalButton,
-                    Node {
-                        width: Val::Px(200.0),
-                        height: Val::Px(65.0),
-                        border: UiRect::all(Val::Px(5.0)),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..Default::default()
-                    },
-                    BorderColor(Color::BLACK),
-                    BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
-                ))
-                .with_children(|parent| {
-                    parent.spawn((
-                        Text::new("Local Play"),
-                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                        TextFont::from_font_size(30.0),
-                    ));
-                });
-        });
-}
-
-fn focus(
-    query: Query<(Entity, &Interaction), Changed<Interaction>>,
-    mut text_input_query: Query<(Entity, &mut TextInputInactive)>,
-) {
-    for (target, interaction) in &query {
-        if *interaction == Interaction::Pressed {
-            for (entity, mut inactive) in text_input_query.iter_mut() {
-                if entity == target {
-                    inactive.0 = false;
-                } else {
-                    inactive.0 = true;
+                    _ => {}
                 }
             }
+
+            while self.accumulator >= DT {
+                self.accumulator -= DT;
+
+                self.update(DT)?;
+
+                self.keyboard_state.just_pressed.clear();
+                self.keyboard_state.clear_released();
+                self.keyboard_state.just_released.clear();
+            }
+
+            if self.got_ctrl_c.load(Ordering::SeqCst) {
+                info!("Got CTRL-C. Exiting...");
+                break;
+            }
+
+            if let Err(err) = self.draw() {
+                match err {
+                    Error::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        self.graphics.resize(None);
+                    }
+                    Error::Surface(wgpu::SurfaceError::Timeout) => {
+                        warn!("Surface timeout");
+                    }
+                    Error::Surface(wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other)
+                    | _ => {
+                        return Err(err);
+                    }
+                }
+            }
+
+            std::thread::sleep(DT.saturating_sub(self.last_redraw.elapsed()));
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct KeyboardState {
+    pressed: HashMap<glfw::Key, glfw::Modifiers>,
+    just_pressed: HashMap<glfw::Key, glfw::Modifiers>,
+    just_released: HashMap<glfw::Key, glfw::Modifiers>,
+}
+
+impl KeyboardState {
+    pub fn is_pressed(&self, key: glfw::Key, mods: Option<glfw::Modifiers>) -> bool {
+        let Some(pressed) = self.pressed.get(&key) else {
+            return false;
+        };
+
+        if let Some(mods) = mods {
+            *pressed == mods
+        } else {
+            true
         }
     }
-}
 
-#[derive(Resource)]
-struct LocalManager(Child);
+    pub fn is_just_pressed(&self, key: glfw::Key, mods: Option<glfw::Modifiers>) -> bool {
+        let Some(just_pressed) = self.just_pressed.get(&key) else {
+            return false;
+        };
 
-impl Drop for LocalManager {
-    fn drop(&mut self) {
-        self.0.kill().unwrap();
-    }
-}
-
-fn handle_login(
-    mut commands: Commands,
-    login_button: Query<&Interaction, (Changed<Interaction>, With<LoginButton>)>,
-    local_button: Query<&Interaction, (Changed<Interaction>, With<LocalButton>)>,
-    username: Query<&TextInputValue, With<Username>>,
-    password: Query<&TextInputValue, With<Password>>,
-    parent: Query<Entity, With<LoginScreen>>,
-) {
-    for interaction in login_button.iter() {
-        if let Interaction::Pressed = *interaction {
-            let username = username.single().0.clone();
-            let password = password.single().0.clone();
-
-            let mut map = HashMap::new();
-            map.insert("user".to_owned(), username);
-            map.insert("pass".to_owned(), password);
-
-            let client = reqwest::blocking::Client::new();
-            let mut token = client
-                .post("http://localhost:3000/login")
-                .json(&map)
-                .send()
-                .unwrap();
-
-            let connect_token = ConnectToken::read(&mut token).unwrap();
-
-            let client = RenetClient::new(ConnectionConfig::default());
-            let authentication = ClientAuthentication::Secure { connect_token };
-            let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
-            let transport =
-                NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
-
-            commands.spawn((network::Client::new(client, transport),));
-
-            commands.entity(parent.single()).despawn_recursive();
+        if let Some(mods) = mods {
+            *just_pressed == mods
+        } else {
+            true
         }
     }
 
-    for interaction in local_button.iter() {
-        if let Interaction::Pressed = *interaction {
-            #[cfg(debug_assertions)]
-            let program = "./target/debug/manager";
-            #[cfg(not(debug_assertions))]
-            let program = "./target/release/manager";
+    pub fn is_just_released(&self, key: glfw::Key, mods: Option<glfw::Modifiers>) -> bool {
+        let Some(just_released) = self.just_released.get(&key) else {
+            return false;
+        };
 
-            let process = Command::new(program).args(["local"]).spawn().unwrap();
-
-            commands.insert_resource(LocalManager(process));
-
-            let client = RenetClient::new(ConnectionConfig::default());
-            let authentication = ClientAuthentication::Unsecure {
-                protocol_id: 0,
-                client_id: 0,
-                server_addr: "127.0.0.1:6969".parse().unwrap(),
-                user_data: None,
-            };
-            let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
-            let transport =
-                NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
-
-            commands.spawn((network::Client::new(client, transport),));
-
-            commands.entity(parent.single()).despawn_recursive();
+        if let Some(mods) = mods {
+            *just_released == mods
+        } else {
+            true
         }
     }
-}
 
-fn connect(
-    mut manager_client: Query<&mut Client, Without<network::Instance>>,
-    mut state: ResMut<NextState<LoadingState>>,
-) {
-    let Ok(mut client) = manager_client.get_single_mut() else {
-        return;
-    };
-
-    if client.client().is_connected() {
-        client.send_manager_reliable(ReliableMessageFromClient::RequestHome);
-
-        state.set(LoadingState::GetInstance);
+    fn clear_released(&mut self) {
+        self.pressed
+            .retain(|k, _| !self.just_released.contains_key(k));
     }
-}
-
-fn receive_instance(
-    mut commands: Commands,
-    mut state: ResMut<NextState<LoadingState>>,
-    mut messages: EventReader<manager_message::ReliableMessageFromServer>,
-) {
-    for msg in messages.read() {
-        if let ReliableMessageFromServer::Instance(data) = msg {
-            log::info!("Got Instance: {}", Uuid::from_bytes(data.id));
-
-            let connect_token = data.get_token();
-
-            let client = RenetClient::new(ConnectionConfig::default());
-            let authentication = ClientAuthentication::Secure { connect_token };
-            let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
-            let transport =
-                NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
-
-            commands.spawn((
-                network::Client::new(client, transport),
-                Instance(Uuid::from_bytes(data.id)),
-                CurrentInstance,
-                InstanceConnecting,
-            ));
-
-            state.set(LoadingState::LoadInstance);
-        }
-    }
-}
-
-fn load_instance(
-    current_instance: Query<Option<&InstanceActive>, With<CurrentInstance>>,
-    mut app_state: ResMut<NextState<AppState>>,
-    mut loading_state: ResMut<NextState<LoadingState>>,
-) {
-    let current_instance = current_instance.single();
-
-    if current_instance.is_none() {
-        return;
-    }
-
-    app_state.set(AppState::InGame);
-    loading_state.set(LoadingState::Done);
 }

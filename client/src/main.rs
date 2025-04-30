@@ -1,5 +1,11 @@
-use client::run;
+fn main() -> common::Result<()> {
+    tracing_subscriber::fmt::init();
 
-fn main() {
-    run();
+    if let Err(err) = client::run() {
+        tracing::error!("Crashed due to error: {err}");
+        Err(err)
+    } else {
+        tracing::info!("Exited without error");
+        Ok(())
+    }
 }

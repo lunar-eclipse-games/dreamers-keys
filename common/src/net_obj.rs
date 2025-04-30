@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
-use bevy::ecs::component::Component;
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::tick::Tick;
 
 #[derive(
-    Debug, Component, Clone, Copy, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, Hash,
+    Debug, Clone, Copy, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, Hash,
 )]
 pub enum NetworkObject {
     Dynamic(u64),
@@ -24,7 +23,7 @@ impl NetworkObject {
     }
 }
 
-#[derive(Debug, Component, Clone)]
+#[derive(Debug, Clone)]
 pub struct LastSyncTracker<T> {
     _component: PhantomData<T>,
     pub last_tick: Tick,

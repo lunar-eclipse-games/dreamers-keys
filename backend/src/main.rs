@@ -56,18 +56,14 @@ async fn get_or_gen_key<P: AsRef<Path>>(path: P) -> std::io::Result<[u8; 32]> {
     let path = path.as_ref();
 
     match tokio::fs::read(path).await {
-        Ok(content) => {
-            return Ok(content.try_into().unwrap());
-        }
+        Ok(content) => Ok(content.try_into().unwrap()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             let key = renet_netcode::generate_random_bytes::<32>();
 
             tokio::fs::write(path, &key).await?;
 
-            return Ok(key);
+            Ok(key)
         }
-        Err(e) => {
-            return Err(e);
-        }
-    };
+        Err(e) => Err(e),
+    }
 }

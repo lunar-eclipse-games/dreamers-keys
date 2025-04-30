@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-log = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
-bevy = { workspace = true }
-bevy_renet = { workspace = true }
-bevy_rapier2d = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 rand = { workspace = true }
+renet = { workspace = true }
+renet_netcode = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+rapier2d = { workspace = true }
+hecs = { workspace = true }
+wgpu = { workspace = true }
