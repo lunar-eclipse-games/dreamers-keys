@@ -16,9 +16,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build (Debug)
+    - name: Install Dependencies
+      run: sudo apt install -y libx11-dev
+    - name: Build
       run: cargo build --verbose
-    - name: Build (Release)
-      run: cargo build --release --verbose
     - name: Run tests
       run: cargo test --verbose
