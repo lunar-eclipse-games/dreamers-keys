@@ -305,6 +305,12 @@ impl InstanceData {
 
         Ok(())
     }
+
+    pub fn get_current_player_position(&mut self) -> Option<Vec2> {
+        let (_, current_player) = self.local_player?;
+        let position = self.instance.get_world_mut().query_one_mut::<&Position>(current_player).ok()?;
+        Some(position.0)
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]

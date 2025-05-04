@@ -18,6 +18,11 @@ bincode = { workspace = true }
 glfw = { workspace = true }
 rapier2d = { workspace = true }
 bytemuck = { workspace = true }
+puffin = { workspace = true }
+puffin_http = { workspace = true }
+profiling = { workspace = true }
+nalgebra = { workspace = true }
+nalgebra-glm = { workspace = true }
 
 common = { path = "../common" }
 instance = { path = "../instance" }
