@@ -36,3 +36,4 @@ wgpu = { version = "25.0", features = ["glsl"] }
 pollster = "0.4"
 tracing-log = "0.2"
 glfw = { version = "0.59" }
+bytemuck = { version = "1.23.0", features = ["derive"] }

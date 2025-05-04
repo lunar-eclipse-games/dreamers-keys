@@ -17,6 +17,7 @@ pollster = { workspace = true }
 bincode = { workspace = true }
 glfw = { workspace = true }
 rapier2d = { workspace = true }
+bytemuck = { workspace = true }
 
 common = { path = "../common" }
 instance = { path = "../instance" }
