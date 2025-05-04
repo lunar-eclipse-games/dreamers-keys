@@ -143,7 +143,7 @@ impl Instance {
 
     #[instrument]
     pub fn update(&mut self, dt: Duration) -> Result<()> {
-        self.physics.update(&self.world);
+        self.physics.update(&mut self.world);
 
         Ok(())
     }

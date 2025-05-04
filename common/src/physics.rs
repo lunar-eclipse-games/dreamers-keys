@@ -64,8 +64,8 @@ impl Physics {
         }
     }
 
-    pub fn update(&mut self, world: &World) {
-        for (_, (pos, rb)) in world.query::<(&Position, &RigidBodyHandle)>().iter() {
+    pub fn update(&mut self, world: &mut World) {
+        for (_, (pos, rb)) in world.query_mut::<(&Position, &RigidBodyHandle)>() {
             self.rigid_body_set[*rb].set_position(pos.0.into(), false);
         }
 
