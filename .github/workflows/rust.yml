@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Install Dependencies
-      run: sudo apt install -y libx11-dev libxrandr
+      run: sudo apt install -y libx11-dev libxrandr-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
