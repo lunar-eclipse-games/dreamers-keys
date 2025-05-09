@@ -16,3 +16,5 @@ hex = { workspace = true }
 rapier2d = { workspace = true }
 hecs = { workspace = true }
 wgpu = { workspace = true }
+bytemuck = { workspace = true }
+image = { workspace = true }

@@ -4,10 +4,14 @@ use camera::{Camera2D, CameraUniform};
 use common::{Result, Vec2};
 use glfw::PWindow;
 use nalgebra_glm as glm;
+use sprite_batch::{SpriteBatch, Vertex};
+use texture::{TextureId, TextureRegistry};
 use tracing::instrument;
 use wgpu::util::DeviceExt;
 
 pub mod camera;
+pub mod sprite_batch;
+pub mod texture;
 
 #[derive(Debug)]
 pub struct Graphics {
@@ -17,13 +21,13 @@ pub struct Graphics {
     config: wgpu::SurfaceConfiguration,
     size: (i32, i32),
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
     camera: Camera2D,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    texture_registry: TextureRegistry,
+    sprite_batch: SpriteBatch,
+    tid: TextureId,
 }
 
 impl Graphics {
@@ -81,7 +85,7 @@ impl Graphics {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let camera = Camera2D::new(glm::zero(), glm::vec2(320.0, 180.0));
+        let camera = Camera2D::new(glm::zero(), glm::vec2(640.0, 360.0));
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
@@ -116,10 +120,15 @@ impl Graphics {
             }],
         });
 
+        let mut texture_registry = TextureRegistry::new(&device);
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &texture_registry.bind_group_layout,
+                    &camera_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -161,17 +170,14 @@ impl Graphics {
             cache: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let sprite_batch = SpriteBatch::new(&device);
 
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let tid = texture_registry.load(
+            &device,
+            &queue,
+            include_bytes!("happy-tree.png"),
+            Some("Happy Tree"),
+        )?;
 
         Ok(Graphics {
             surface,
@@ -180,13 +186,13 @@ impl Graphics {
             config,
             size,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices: INDICES.len() as u32,
             camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            texture_registry,
+            sprite_batch,
+            tid,
         })
     }
 
@@ -246,10 +252,19 @@ impl Graphics {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+
+            self.sprite_batch
+                .draw(self.tid, Vec2::new(0.0, 0.0))
+                .origin(Vec2::new(128.0, 128.0))
+                .draw(&mut self.sprite_batch, &self.texture_registry);
+
+            self.sprite_batch.end(
+                &self.device,
+                &self.queue,
+                &self.texture_registry,
+                &mut render_pass,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -258,43 +273,3 @@ impl Graphics {
         Ok(())
     }
 }
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    colour: [f32; 3],
-}
-
-impl Vertex {
-    const fn new(position: [f32; 3], colour: [f32; 3]) -> Vertex {
-        Vertex { position, colour }
-    }
-
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
-
-const VERTICES: &[Vertex] = &[
-    Vertex::new([0.0, 5.0, 0.0], [1.0, 0.0, 0.0]),
-    Vertex::new([-5.0, -5.0, 0.0], [0.0, 1.0, 0.0]),
-    Vertex::new([5.0, -5.0, 0.0], [0.0, 0.0, 1.0]),
-];
-
-const INDICES: &[u16] = &[0, 1, 2];

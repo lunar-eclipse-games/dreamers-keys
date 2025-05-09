@@ -23,6 +23,7 @@ puffin_http = { workspace = true }
 profiling = { workspace = true }
 nalgebra = { workspace = true }
 nalgebra-glm = { workspace = true }
+image = { workspace = true }
 
 common = { path = "../common" }
 instance = { path = "../instance" }
