@@ -18,3 +18,4 @@ hecs = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 image = { workspace = true }
+profiling = { workspace = true }

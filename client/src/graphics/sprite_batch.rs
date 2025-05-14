@@ -104,8 +104,8 @@ impl SpriteBatch {
         }
     }
 
-    pub fn draw(&mut self, texture_id: TextureId, position: Vec2) -> DrawDetails {
-        DrawDetails {
+    pub fn draw(&mut self, texture_id: TextureId, position: Vec2) -> DrawCall {
+        DrawCall {
             texture_id,
             position,
             source: None,
@@ -159,7 +159,7 @@ impl SpriteBatch {
         );
 
         let br = Vertex::new(
-            position - scaled_origin + Vec2::new(source.width(), 0.0),
+            position - scaled_origin + Vec2::new(source.width() * scale.x, 0.0),
             colour,
             Vec2::new(
                 source.max.x / texture.get_width_f32(),
@@ -168,7 +168,7 @@ impl SpriteBatch {
         );
 
         let tl = Vertex::new(
-            position - scaled_origin + Vec2::new(0.0, source.height()),
+            position - scaled_origin + Vec2::new(0.0, source.height() * scale.y),
             colour,
             Vec2::new(
                 source.min.x / texture.get_width_f32(),
@@ -177,7 +177,7 @@ impl SpriteBatch {
         );
 
         let tr = Vertex::new(
-            position - scaled_origin + Vec2::new(source.width(), source.height()),
+            position - scaled_origin + Vec2::new(source.width() * scale.x, source.height() * scale.y),
             colour,
             Vec2::new(
                 source.max.x / texture.get_width_f32(),
@@ -272,7 +272,7 @@ impl SpriteBatch {
     }
 }
 
-pub struct DrawDetails {
+pub struct DrawCall {
     texture_id: TextureId,
     position: Vec2,
     source: Option<Rect>,
@@ -282,29 +282,34 @@ pub struct DrawDetails {
     scale: Option<Vec2>,
 }
 
-impl DrawDetails {
-    pub fn source(mut self, source: Rect) -> DrawDetails {
+impl DrawCall {
+    pub fn source(mut self, source: Rect) -> DrawCall {
         self.source = Some(source);
         self
     }
 
-    pub fn colour(mut self, colour: Vec4) -> DrawDetails {
+    pub fn colour(mut self, colour: Vec4) -> DrawCall {
         self.colour = Some(colour);
         self
     }
 
-    pub fn rotation(mut self, rotation: f32) -> DrawDetails {
+    pub fn rotation(mut self, rotation: f32) -> DrawCall {
         self.rotation = Some(rotation);
         self
     }
 
-    pub fn origin(mut self, origin: Vec2) -> DrawDetails {
+    pub fn origin(mut self, origin: Vec2) -> DrawCall {
         self.origin = Some(origin);
         self
     }
 
-    pub fn scale(mut self, scale: Vec2) -> DrawDetails {
+    pub fn scale(mut self, scale: Vec2) -> DrawCall {
         self.scale = Some(scale);
+        self
+    }
+
+    pub fn scale_uniform(mut self, scale: f32) -> DrawCall {
+        self.scale = Some(Vec2::new(scale, scale));
         self
     }
 

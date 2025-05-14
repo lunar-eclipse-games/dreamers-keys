@@ -45,12 +45,16 @@ impl Debug for Instance {
 
 impl Instance {
     pub fn new(id: Uuid) -> Instance {
-        Instance {
+        let mut i = Instance {
             id,
             physics: Physics::new(),
             world: World::new(),
             tick: Tick::new(0),
-        }
+        };
+
+        i.spawn_obstacle();
+
+        i
     }
 
     pub fn get_world(&self) -> &World {
@@ -89,6 +93,27 @@ impl Instance {
         }
 
         None
+    }
+
+    pub fn spawn_obstacle(
+        &mut self,
+    ) -> Entity {
+        let pos = Vec2::new(512.0, 384.0);
+
+        let mut e = EntityBuilder::new();
+        e.add(Position(pos));
+
+        let rb = self
+            .physics
+            .insert_rigid_body(RigidBodyBuilder::fixed().position(pos.into()));
+
+        let coll = self
+            .physics
+            .insert_collider_with_parent(ColliderBuilder::cuboid(256.0, 128.0), rb);
+
+        e.add(rb).add(coll);
+
+        self.world.spawn(e.build())
     }
 
     pub fn spawn_player(

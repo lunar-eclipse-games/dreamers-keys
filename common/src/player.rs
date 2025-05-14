@@ -12,6 +12,7 @@ pub struct PlayerInput {
     pub move_direction: [f32; 2],
 }
 
+#[profiling::function]
 pub fn apply_input(
     physics: &Physics,
     position: &mut Position,
@@ -38,6 +39,7 @@ pub fn apply_input(
     position.0 += out;
 }
 
+#[profiling::function]
 fn move_character(
     physics: &Physics,
     movement: Vec2,
@@ -52,7 +54,7 @@ fn move_character(
     let offset = 2.0;
     let mut iters_remaining = 5;
 
-    while translation_remaining.norm_squared() > 0.0 && iters_remaining > 0 {
+    while translation_remaining.norm_squared() > 1.0e-6 && iters_remaining > 0 {
         if let Some((hit_entity, hit)) = physics.cast_shape(
             shape_translation + effective_translation,
             translation_remaining,
@@ -72,10 +74,14 @@ fn move_character(
             translation_remaining -= allowed_translation;
 
             // Slide along hit normal plane projection
-            translation_remaining = project_on_plane(translation_remaining, &hit.normal1)
-                .normalize()
-                * translation_remaining.norm();
-            filter = filter.exclude_collider(hit_entity);
+            let projection = project_on_plane(translation_remaining, &hit.normal1);
+            if projection.norm_squared() > 1.0e-6 {
+                translation_remaining = projection.normalize() * translation_remaining.norm();
+            } else {
+                translation_remaining = Vec2::zeros();
+            }
+
+            // filter = filter.exclude_collider(hit_entity);
         } else {
             // No interference along the path.
             effective_translation += translation_remaining;

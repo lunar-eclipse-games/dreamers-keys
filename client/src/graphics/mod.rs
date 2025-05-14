@@ -85,7 +85,7 @@ impl Graphics {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let camera = Camera2D::new(glm::zero(), glm::vec2(640.0, 360.0));
+        let camera = Camera2D::new(glm::zero(), glm::vec2(1920.0, 1080.0));
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
@@ -217,7 +217,7 @@ impl Graphics {
         );
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self, player_position: Vec2) -> Result<()> {
         let output = self.surface.get_current_texture()?;
 
         let view = output
@@ -255,8 +255,14 @@ impl Graphics {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
             self.sprite_batch
-                .draw(self.tid, Vec2::new(0.0, 0.0))
+                .draw(self.tid, Vec2::new(256.0, 256.0))
+                .scale(Vec2::new(2.0, 1.0))
+                .draw(&mut self.sprite_batch, &self.texture_registry);
+
+            self.sprite_batch
+                .draw(self.tid, player_position)
                 .origin(Vec2::new(128.0, 128.0))
+                .scale_uniform(100.0 / 256.0)
                 .draw(&mut self.sprite_batch, &self.texture_registry);
 
             self.sprite_batch.end(
