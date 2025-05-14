@@ -89,7 +89,8 @@ impl Game {
     #[tracing::instrument(skip(self))]
     #[profiling::function]
     fn draw(&mut self) -> Result<()> {
-        self.graphics.render()?;
+        let player_position = self.get_current_player_position().unwrap_or_default();
+        self.graphics.render(player_position)?;
 
         profiling::finish_frame!();
 

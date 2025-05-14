@@ -30,6 +30,8 @@ pub enum Error {
     RequestDevice(#[from] wgpu::RequestDeviceError),
     #[error(transparent)]
     Surface(#[from] wgpu::SurfaceError),
+    #[error(transparent)]
+    Image(#[from] image::ImageError),
     #[error("Invalid Key Length")]
     InvalidKeyLength,
     #[error("Invalid Character Id")]
